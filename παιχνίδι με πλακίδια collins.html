@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Παιχνίδι με Quartered Tiles</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .instructions {
+            color: #666;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 600px;
+        }
+
+        .game-container {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Το ταμπλό 4x4 */
+        .grid-board {
+            display: grid;
+            grid-template-columns: repeat(4, 100px);
+            grid-template-rows: repeat(4, 100px);
+            gap: 4px;
+            background-color: #ccc;
+            padding: 4px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .grid-cell {
+            width: 100px;
+            height: 100px;
+            background-color: #e5e5e5;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        /* Η αποθήκη με τα διαθέσιμα πλακίδια */
+        .tile-pool {
+            display: grid;
+            grid-template-columns: repeat(4, 90px);
+            gap: 10px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            max-height: 440px;
+            overflow-y: auto;
+        }
+
+        /* Στυλ για το κάθε πλακίδιο */
+        .tile {
+            width: 100px;
+            height: 100px;
+            cursor: grab;
+            transition: transform 0.2s;
+            user-select: none;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        .tile-pool .tile {
+            width: 90px;
+            height: 90px;
+        }
+
+        .tile:active {
+            cursor: grabbing;
+        }
+
+        .tile.dragging {
+            opacity: 0.5;
+        }
+
+        /* Κουμπί επαναφοράς */
+        .btn-reset {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-reset:hover {
+            background-color: #0056b3;
+        }
+
+        #status-message {
+            margin-top: 15px;
+            font-weight: bold;
+            font-size: 18px;
+            color: #28a745;
+            min-height: 24px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Matching Two-Colour Quartered Tiles</h1>
+    <div class="instructions">
+        Σύρετε τα πλακίδια στο πλέγμα 4x4. Κάντε κλικ σε ένα πλακίδιο για να το περιστρέψετε. Στόχος είναι να ταιριάζουν τα χρώματα στις γειτονικές πλευρές.
+    </div>
+
+    <div class="game-container">
+        <!-- Το Ταμπλό του Παιχνιδιού -->
+        <div class="grid-board" id="board"></div>
+
+        <!-- Η Στοίβα/Αποθήκη Πλακιδίων -->
+        <div class="tile-pool" id="pool"></div>
+    </div>
+
+    <div id="status-message"></div>
+    <button class="btn-reset" onclick="resetGame()">Επανεκκίνηση</button>
+
+    <script>
+        const tilesData = [];
+        for (let i = 0; i < 16; i++) {
+            const binaryStr = i.toString(2).padStart(4, '0');
+            tilesData.push({
+                id: i,
+                code: binaryStr.split('').map(Number) 
+            });
+        }
+
+        const board = document.getElementById('board');
+        const pool = document.getElementById('pool');
+        const statusMessage = document.getElementById('status-message');
+
+        function createTileSVG(code, size = 100) {
+            const colors = ['white', 'black'];
+            const t = colors[code[0]];
+            const r = colors[code[1]];
+            const b = colors[code[2]];
+            const l = colors[code[3]];
+
+            return `
+                <svg width="${size}" height="${size}" viewBox="0 0 100 100" style="display:block;">
+                    <polygon points="0,0 100,0 50,50" fill="${t}" stroke="${t}" stroke-width="0.5"/>
+                    <polygon points="100,0 100,100 50,50" fill="${r}" stroke="${r}" stroke-width="0.5"/>
+                    <polygon points="100,100 0,100 50,50" fill="${b}" stroke="${b}" stroke-width="0.5"/>
+                    <polygon points="0,100 0,0 50,50" fill="${l}" stroke="${l}" stroke-width="0.5"/>
+                </svg>
+            `;
+        }
+
+        function initGame() {
+            board.innerHTML = '';
+            pool.innerHTML = '';
+            statusMessage.textContent = '';
+
+            for (let i = 0; i < 16; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('grid-cell');
+                cell.dataset.index = i;
+                
+                cell.addEventListener('dragover', dragOver);
+                cell.addEventListener('drop', dropTile);
+                
+                board.appendChild(cell);
+            }
+
+            tilesData.forEach(tileInfo => {
+                const tileEl = document.createElement('div');
+                tileEl.classList.add('tile');
+                tileEl.setAttribute('draggable', 'true');
+                tileEl.dataset.id = tileInfo.id;
+                tileEl.dataset.code = JSON.stringify(tileInfo.code);
+                
+                tileEl.innerHTML = createTileSVG(tileInfo.code, 90);
+
+                tileEl.addEventListener('dragstart', dragStart);
+                tileEl.addEventListener('dragend', dragEnd);
+                tileEl.addEventListener('click', rotateTile);
+
+                pool.appendChild(tileEl);
+            });
+        }
+
+        let draggedTile = null;
+
+        function dragStart(e) {
+            draggedTile = this;
+            this.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', this.dataset.id);
+        }
+
+        function dragEnd() {
+            this.classList.remove('dragging');
+        }
+
+        function dragOver(e) {
+            e.preventDefault();
+        }
+
+        function dropTile(e) {
+            e.preventDefault();
+            if (this.children.length === 0 && draggedTile) {
+                const code = JSON.parse(draggedTile.dataset.code);
+                
+                draggedTile.innerHTML = createTileSVG(code, 100);
+                draggedTile.style.width = '100px';
+                draggedTile.style.height = '100px';
+                
+                this.appendChild(draggedTile);
+                checkGameStatus();
+            }
+        }
+
+        pool.addEventListener('dragover', dragOver);
+        pool.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (draggedTile) {
+                const code = JSON.parse(draggedTile.dataset.code);
+                draggedTile.innerHTML = createTileSVG(code, 90);
+                draggedTile.style.width = '90px';
+                draggedTile.style.height = '90px';
+                pool.appendChild(draggedTile);
+                checkGameStatus();
+            }
+        });
+
+        function rotateTile(e) {
+            e.stopPropagation();
+            let code = JSON.parse(this.dataset.code);
+            // Περιστροφή δεξιόστροφα: [Left, Top, Right, Bottom] -> [Bottom, Left, Top, Right]
+            // Δηλαδή: code[3], code[0], code[1], code[2]
+            code = [code[3], code[0], code[1], code[2]];
+            this.dataset.code = JSON.stringify(code);
+
+            const size = this.parentElement.classList.contains('grid-cell') ? 100 : 90;
+            this.innerHTML = createTileSVG(code, size);
+            
+            checkGameStatus();
+        }
+
+        function checkGameStatus() {
+            const cells = board.querySelectorAll('.grid-cell');
+            let filledCount = 0;
+            let grid = Array(16).fill(null);
+
+            cells.forEach((cell, index) => {
+                const tile = cell.querySelector('.tile');
+                if (tile) {
+                    filledCount++;
+                    grid[index] = JSON.parse(tile.dataset.code);
+                }
+            });
+
+            if (filledCount < 16) {
+                statusMessage.textContent = '';
+                return;
+            }
+
+            // Έλεγχος γειτονικών πλευρών
+            let isCorrect = true;
+
+            for (let r = 0; r < 4; r++) {
+                for (let c = 0; c < 4; c++) {
+                    const idx = r * 4 + c;
+                    const current = grid[idx];
+
+                    // Έλεγχος με το δεξιό πλακίδιο
+                    if (c < 3) {
+                        const rightNeighbor = grid[r * 4 + (c + 1)];
+                        if (rightNeighbor && current[1] !== rightNeighbor[3]) {
+                            isCorrect = false;
+                        }
+                    }
+
+                    // Έλεγχος με το κάτω πλακίδιο
+                    if (r < 3) {
+                        const bottomNeighbor = grid[(r + 1) * 4 + c];
+                        if (bottomNeighbor && current[2] !== bottomNeighbor[0]) {
+                            isCorrect = false;
+                        }
+                    }
+                }
+            }
+
+            if (isCorrect) {
+                statusMessage.textContent = 'Συγχαρητήρια! Λύσατε το παζλ!';
+            } else {
+                statusMessage.textContent = 'Το ταμπλό είναι γεμάτο, αλλά υπάρχουν αναντιστοιχίες χρώματος.';
+                statusMessage.style.color = '#dc3545';
+            }
+        }
+
+        function resetGame() {
+            initGame();
+        }
+
+        initGame();
+    </script>
+</body>
+</html>

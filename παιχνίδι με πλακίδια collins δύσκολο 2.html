@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Παιχνίδι με 36 Μοναδικά 8-Partition Tiles σε Ταμπλό 6x6</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .instructions {
+            color: #666;
+            margin-bottom: 20px;
+            text-align: center;
+            max-width: 800px;
+        }
+
+        .game-container {
+            display: flex;
+            gap: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* Ταμπλό 6x6 */
+        .grid-board {
+            display: grid;
+            grid-template-columns: repeat(6, 90px);
+            grid-template-rows: repeat(6, 90px);
+            gap: 4px;
+            background-color: #ccc;
+            padding: 4px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        .grid-cell {
+            width: 90px;
+            height: 90px;
+            background-color: #e5e5e5;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .tile-pool {
+            display: grid;
+            grid-template-columns: repeat(4, 80px);
+            gap: 8px;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            max-height: 560px;
+            overflow-y: auto;
+            width: 370px;
+        }
+
+        .tile {
+            width: 90px;
+            height: 90px;
+            cursor: grab;
+            transition: transform 0.2s;
+            user-select: none;
+            border: 1px solid #ddd;
+            box-sizing: border-box;
+        }
+
+        .tile-pool .tile {
+            width: 80px;
+            height: 80px;
+        }
+
+        .tile:active {
+            cursor: grabbing;
+        }
+
+        .tile.dragging {
+            opacity: 0.5;
+        }
+
+        .btn-reset {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .btn-reset:hover {
+            background-color: #0056b3;
+        }
+
+        #status-message {
+            margin-top: 15px;
+            font-weight: bold;
+            font-size: 18px;
+            color: #28a745;
+            min-height: 24px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Παζλ 8-Partition Tiles σε Ταμπλό 6x6</h1>
+    <div class="instructions">
+        Το ταμπλό έχει πλέον διαστάσεις 6x6 (36 θέσεις) ώστε να χωράει ακριβώς και τα 36 μοναδικά πλακίδια της συλλογής. Σύρετε τα πλακίδια στο ταμπλό και κάντε κλικ πάνω τους για περιστροφή.
+    </div>
+
+    <div class="game-container">
+        <div class="grid-board" id="board"></div>
+        <div class="tile-pool" id="pool"></div>
+    </div>
+
+    <div id="status-message"></div>
+    <button class="btn-reset" onclick="resetGame()">Επανεκκίνηση</button>
+
+    <script>
+        const trianglePoints = [
+            "50,50 50,0 100,0",
+            "50,50 100,0 100,50",
+            "50,50 100,50 100,100",
+            "50,50 100,100 50,100",
+            "50,50 50,100 0,100",
+            "50,50 0,100 0,50",
+            "50,50 0,50 0,0",
+            "50,50 0,0 50,0"
+        ];
+
+        function generateUniqueTiles() {
+            const uniqueMap = new Map();
+            
+            for (let i = 0; i < 256; i++) {
+                const code = i.toString(2).padStart(8, '0').split('').map(Number);
+                let rotations = [];
+                let temp = [...code];
+                for (let r = 0; r < 4; r++) {
+                    rotations.push(temp.join(''));
+                    temp = [temp[6], temp[7], temp[0], temp[1], temp[2], temp[3], temp[4], temp[5]];
+                }
+                rotations.sort();
+                const canonical = rotations[0];
+                
+                if (!uniqueMap.has(canonical)) {
+                    uniqueMap.set(canonical, code);
+                }
+            }
+            
+            let id = 0;
+            const tiles = [];
+            uniqueMap.forEach((code) => {
+                tiles.push({ id: id++, code: code });
+            });
+            return tiles;
+        }
+
+        const tilesData = generateUniqueTiles(); // 36 πλακίδια
+
+        const board = document.getElementById('board');
+        const pool = document.getElementById('pool');
+        const statusMessage = document.getElementById('status-message');
+
+        function createTileSVG(code, size = 90) {
+            const colors = ['white', 'black'];
+            let svgContent = `<svg width="${size}" height="${size}" viewBox="0 0 100 100" style="display:block;">`;
+            for (let i = 0; i < 8; i++) {
+                const col = colors[code[i]];
+                svgContent += `<polygon points="${trianglePoints[i]}" fill="${col}" stroke="${col}" stroke-width="0.3"/>`;
+            }
+            svgContent += `</svg>`;
+            return svgContent;
+        }
+
+        function initGame() {
+            board.innerHTML = '';
+            pool.innerHTML = '';
+            statusMessage.textContent = '';
+
+            // 6x6 = 36 θέσεις στο ταμπλό
+            for (let i = 0; i < 36; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('grid-cell');
+                cell.dataset.index = i;
+                cell.addEventListener('dragover', dragOver);
+                cell.addEventListener('drop', dropTile);
+                board.appendChild(cell);
+            }
+
+            tilesData.forEach(tileInfo => {
+                const tileEl = document.createElement('div');
+                tileEl.classList.add('tile');
+                tileEl.setAttribute('draggable', 'true');
+                tileEl.dataset.id = tileInfo.id;
+                tileEl.dataset.code = JSON.stringify(tileInfo.code);
+                
+                tileEl.innerHTML = createTileSVG(tileInfo.code, 80);
+
+                tileEl.addEventListener('dragstart', dragStart);
+                tileEl.addEventListener('dragend', dragEnd);
+                tileEl.addEventListener('click', rotateTile);
+
+                pool.appendChild(tileEl);
+            });
+        }
+
+        let draggedTile = null;
+
+        function dragStart(e) {
+            draggedTile = this;
+            this.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', this.dataset.id);
+        }
+
+        function dragEnd() {
+            this.classList.remove('dragging');
+        }
+
+        function dragOver(e) {
+            e.preventDefault();
+        }
+
+        function dropTile(e) {
+            e.preventDefault();
+            if (this.children.length === 0 && draggedTile) {
+                const code = JSON.parse(draggedTile.dataset.code);
+                draggedTile.innerHTML = createTileSVG(code, 90);
+                draggedTile.style.width = '90px';
+                draggedTile.style.height = '90px';
+                this.appendChild(draggedTile);
+                checkGameStatus();
+            }
+        }
+
+        pool.addEventListener('dragover', dragOver);
+        pool.addEventListener('drop', function(e) {
+            e.preventDefault();
+            if (draggedTile) {
+                const code = JSON.parse(draggedTile.dataset.code);
+                draggedTile.innerHTML = createTileSVG(code, 80);
+                draggedTile.style.width = '80px';
+                draggedTile.style.height = '80px';
+                pool.appendChild(draggedTile);
+                checkGameStatus();
+            }
+        });
+
+        function rotateTile(e) {
+            e.stopPropagation();
+            let code = JSON.parse(this.dataset.code);
+            code = [code[7], code[0], code[1], code[2], code[3], code[4], code[5], code[6]];
+            this.dataset.code = JSON.stringify(code);
+
+            const size = this.parentElement.classList.contains('grid-cell') ? 90 : 80;
+            this.innerHTML = createTileSVG(code, size);
+            checkGameStatus();
+        }
+
+        function checkGameStatus() {
+            const cells = board.querySelectorAll('.grid-cell');
+            let filledCount = 0;
+            let grid = Array(36).fill(null);
+
+            cells.forEach((cell, index) => {
+                const tile = cell.querySelector('.tile');
+                if (tile) {
+                    filledCount++;
+                    grid[index] = JSON.parse(tile.dataset.code);
+                }
+            });
+
+            if (filledCount < 36) {
+                statusMessage.textContent = '';
+                return;
+            }
+
+            let isCorrect = true;
+
+            for (let r = 0; r < 6; r++) {
+                for (let c = 0; c < 6; c++) {
+                    const idx = r * 6 + c;
+                    const current = grid[idx];
+
+                    // Δεξιός γείτονας (στήλες 0 έως 4)
+                    if (c < 5) {
+                        const rightNeighbor = grid[r * 6 + (c + 1)];
+                        if (rightNeighbor) {
+                            if (current[1] !== rightNeighbor[6] || current[2] !== rightNeighbor[5]) {
+                                isCorrect = false;
+                            }
+                        }
+                    }
+
+                    // Κάτω γείτονας (γραμμές 0 έως 4)
+                    if (r < 5) {
+                        const bottomNeighbor = grid[(r + 1) * 6 + c];
+                        if (bottomNeighbor) {
+                            if (current[3] !== bottomNeighbor[7] || current[4] !== bottomNeighbor[0]) {
+                                isCorrect = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (isCorrect) {
+                statusMessage.textContent = 'Συγχαρητήρια! Το γιγάντιο παζλ 6x6 λύθηκε επιτυχώς!';
+            } else {
+                statusMessage.textContent = 'Το ταμπλό είναι γεμάτο, αλλά υπάρχουν ασυμφωνίες στα χρώματα επαφής.';
+                statusMessage.style.color = '#dc3545';
+            }
+        }
+
+        function resetGame() {
+            initGame();
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
